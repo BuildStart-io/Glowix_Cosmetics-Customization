@@ -36,7 +36,7 @@ serve(async (req) => {
     // Extract base contacts limit per tier, defaulting to 500 if undefined
     const getBaseLimit = (tier: string) => {
       const tierConfig = planLimits[tier];
-      return tierConfig?.max_contacts ?? 500;
+      return tierConfig?.contacts_per_month ?? 500;
     };
 
     // 2. Get profiles to know each user's tier and addon_contacts
