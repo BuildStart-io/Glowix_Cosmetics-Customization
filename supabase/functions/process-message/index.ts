@@ -306,11 +306,11 @@ async function processMessage(
   }
 
   const replyMessage = aiData.response;
-  const replyImageUrl = aiData.imageUrl || null;
+  const replyImageUrls: string[] = Array.isArray(aiData.imageUrls) ? aiData.imageUrls : (aiData.imageUrl ? [aiData.imageUrl] : []);
   const replyVideoUrl = aiData.videoUrl || null;
   const followupMessage = aiData.followupMessage || null;
   const faqMedia: string[] = Array.isArray(aiData.faqMedia) ? aiData.faqMedia : [];
-  console.log(`[${corrId}] AI reply: ${replyMessage?.substring(0, 100)}${replyImageUrl ? " (with image)" : ""}${replyVideoUrl ? " (with video)" : ""}${followupMessage ? " (with followup)" : ""}`);
+  console.log(`[${corrId}] AI reply: ${replyMessage?.substring(0, 100)}${replyImageUrls.length > 0 ? ` (with ${replyImageUrls.length} images)` : ""}${replyVideoUrl ? " (with video)" : ""}${followupMessage ? " (with followup)" : ""}`);
 
   // 7. Store outgoing message
   mark("store_outbound_start");
@@ -318,7 +318,7 @@ async function processMessage(
     phone_number: phoneNumber,
     message: replyMessage,
     direction: "outbound",
-    message_type: replyImageUrl ? "image" : "text",
+    message_type: replyImageUrls.length > 0 ? "image" : "text",
     metadata: { correlationId: corrId, ...(faqMedia.length > 0 ? { faqMedia } : {}) },
     user_id: userId,
   });
@@ -333,8 +333,8 @@ async function processMessage(
   }
 
   // Send image(s) next if present
-  if (replyImageUrl) {
-    await sendWhatsAppMedia(supabaseUrl, supabaseServiceKey, phoneNumber, replyImageUrl, sessionApiKey);
+  for (const url of replyImageUrls) {
+    await sendWhatsAppMedia(supabaseUrl, supabaseServiceKey, phoneNumber, url, sessionApiKey);
   }
 
   // Send FAQ attachments (images / videos / PDFs) with no caption, before the text reply

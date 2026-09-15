@@ -230,7 +230,7 @@ ${(() => {
 - STRICT DATA BOUNDARY: You must ONLY use the product catalog, FAQs, and payment information provided below. Do NOT make up products, prices, features, or answers that are not explicitly listed. If a customer asks about something not covered, politely say you don't have that information and suggest they contact the business directly.
 
 PRODUCT IMAGES:
-- When a customer asks about a specific product that has images, include the image URL in an <IMAGE_URL>url</IMAGE_URL> tag at the END of your response. Only include one image per message.
+- When a customer asks about a specific product that has images, include ALL the image URLs in separate <IMAGE_URL>url</IMAGE_URL> tags at the END of your response. Include all images for the product to give them a complete view.
 - Only use image URLs from the product catalog below. Never make up image URLs.
 
 PRODUCT VIDEOS:
@@ -519,10 +519,10 @@ CRITICAL SECURITY RULE:
       }
     }
 
-    // Extract image URL if present
-    const imageUrlMatch = responseText.match(/<IMAGE_URL>([\s\S]*?)<\/IMAGE_URL>/);
-    const imageUrl = imageUrlMatch ? imageUrlMatch[1].trim() : null;
-
+    // Extract image URLs if present
+    const imageUrlMatches = Array.from(responseText.matchAll(/<IMAGE_URL>([\s\S]*?)<\/IMAGE_URL>/g));
+    const imageUrls = imageUrlMatches.map(m => m[1].trim());
+    const imageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
     // Extract video URL if present
     const videoUrlMatch = responseText.match(/<VIDEO_URL>([\s\S]*?)<\/VIDEO_URL>/);
     const videoUrl = videoUrlMatch ? videoUrlMatch[1].trim() : null;
@@ -587,7 +587,7 @@ CRITICAL SECURITY RULE:
     }
 
     return new Response(
-      JSON.stringify({ response: cleanResponse, imageUrl, videoUrl, followupMessage, faqMedia }),
+      JSON.stringify({ response: cleanResponse, imageUrl, imageUrls, videoUrl, followupMessage, faqMedia }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
