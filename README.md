@@ -1,5 +1,6 @@
 # BuildStart.io — self-hosted WhatsApp AI bot
 
+
 Everything in this bundle runs on **your** infrastructure. The only thing left on
 Lovable is a single stateless function, `ai-generate`, which forwards prompts to
 the Lovable AI Gateway and returns text. It touches no database and stores nothing.
