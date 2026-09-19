@@ -16,8 +16,11 @@ serve(async (req: Request) => {
   try {
     const worker = await EdgeRuntime.userWorkers.create({
       servicePath: `/home/deno/functions/${functionName}`,
-      memoryLimitMb: 150,
+      memoryLimitMb: 256,
       workerTimeoutMs: 5 * 60 * 1000,
+      cpuTimeSoftLimitMs: 5 * 60 * 1000,
+      cpuTimeHardLimitMs: 5 * 60 * 1000,
+      wallClockTimeLimitMs: 5 * 60 * 1000,
       noModuleCache: false,
       importMapPath: null,
       envVars: Object.entries(Deno.env.toObject())
