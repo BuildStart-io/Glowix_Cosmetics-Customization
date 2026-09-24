@@ -1,6 +1,44 @@
+# Environment & Secrets (NEVER COMMIT)
 .env
+.env.*
+*.env
+!.env.example
+!*.env.example
+docker/.env
+docker/.env.*
+frontend/.env
+frontend/.env.*
+
+# Docker runtime volumes & database data (NEVER COMMIT)
+docker/volumes/db/data/
+docker/volumes/storage/
+docker/volumes/snippets/
+docker/volumes/waha/
+docker/volumes/*/data/
+
+# Node dependencies & builds
 node_modules/
+*/node_modules/
 dist/
-.DS_Store
+*/dist/
+build/
+.cache/
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Antigravity & Agent metadata
 .gemini/
+.agents/
+.supabase/

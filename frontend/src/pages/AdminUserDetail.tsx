@@ -39,6 +39,8 @@ export default function AdminUserDetail() {
   const [prodType, setProdType] = useState("physical");
   const [prodVariations, setProdVariations] = useState<Variation[]>([]);
   const [prodActive, setProdActive] = useState(true);
+  const [prodStockQuantity, setProdStockQuantity] = useState("");
+  const [prodCategory, setProdCategory] = useState("single");
 
   // FAQ dialog
   const [faqDialogOpen, setFaqDialogOpen] = useState(false);
@@ -64,7 +66,7 @@ export default function AdminUserDetail() {
       return;
     }
     setPasswordSaving(true);
-    const res = await supabase.functions.invoke("admin-manage-users", {
+    const res = await supabase.functions.invoke("admin-manage-users-Glowix_cosmetics", {
       body: { action: "change_password", userId, newPassword },
     });
     setPasswordSaving(false);
@@ -82,15 +84,12 @@ export default function AdminUserDetail() {
 
   useEffect(() => {
     if (!roleLoading && !isSuperAdmin) navigate("/dashboard");
-  }, [isSuperAdmin, roleLoading, navigate]);
-
-  useEffect(() => {
-    if (isSuperAdmin && userId) fetchDetails();
-  }, [isSuperAdmin, userId]);
+    if (userId) fetchDetails();
+  }, [userId, isSuperAdmin, roleLoading]);
 
   const fetchDetails = async () => {
     setLoading(true);
-    const res = await supabase.functions.invoke("admin-manage-users", {
+    const res = await supabase.functions.invoke("admin-manage-users-Glowix_cosmetics", {
       body: { action: "get_user_details", userId },
     });
     if (res.data) setDetailData(res.data);
@@ -100,6 +99,8 @@ export default function AdminUserDetail() {
   // Product CRUD
   const resetProductForm = () => {
     setProdName(""); setProdDesc(""); setProdPrice(""); setProdType("physical");
+    setProdStockQuantity("");
+    setProdCategory("single");
     setProdVariations([]); setProdActive(true); setEditingProduct(null);
   };
 
@@ -109,6 +110,10 @@ export default function AdminUserDetail() {
     setProdDesc(p.description || "");
     setProdPrice(p.price.toString());
     setProdType(p.product_type);
+    setProdCategory(p.category || "single");
+    setProdStockQuantity(
+      p.stock_quantity !== null && p.stock_quantity !== undefined ? p.stock_quantity.toString() : ""
+    );
     setProdVariations(Array.isArray(p.variations) ? p.variations : []);
     setProdActive(p.is_active);
     setProductDialogOpen(true);
@@ -117,7 +122,9 @@ export default function AdminUserDetail() {
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const res = await supabase.functions.invoke("admin-manage-users", {
+    const parsedStock = prodStockQuantity.trim() === "" ? null : Math.max(0, parseInt(prodStockQuantity, 10));
+
+    const res = await supabase.functions.invoke("admin-manage-users-Glowix_cosmetics", {
       body: {
         action: editingProduct ? "update_product" : "create_product",
         userId,
@@ -127,6 +134,8 @@ export default function AdminUserDetail() {
           description: prodDesc || null,
           price: parseFloat(prodPrice),
           product_type: prodType,
+          category: prodCategory || "single",
+          stock_quantity: isNaN(parsedStock as number) ? null : parsedStock,
           variations: prodVariations,
           is_active: prodActive,
         },
@@ -145,7 +154,7 @@ export default function AdminUserDetail() {
 
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm("Delete this product?")) return;
-    const res = await supabase.functions.invoke("admin-manage-users", {
+    const res = await supabase.functions.invoke("admin-manage-users-Glowix_cosmetics", {
       body: { action: "delete_product", userId, productId },
     });
     if (!res.data?.error) {
@@ -171,7 +180,7 @@ export default function AdminUserDetail() {
   const handleSaveFaq = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const res = await supabase.functions.invoke("admin-manage-users", {
+    const res = await supabase.functions.invoke("admin-manage-users-Glowix_cosmetics", {
       body: {
         action: editingFaq ? "update_faq" : "create_faq",
         userId,
@@ -197,7 +206,7 @@ export default function AdminUserDetail() {
 
   const handleDeleteFaq = async (faqId: string) => {
     if (!confirm("Delete this FAQ?")) return;
-    const res = await supabase.functions.invoke("admin-manage-users", {
+    const res = await supabase.functions.invoke("admin-manage-users-Glowix_cosmetics", {
       body: { action: "delete_faq", userId, faqId },
     });
     if (!res.data?.error) {
@@ -308,8 +317,10 @@ export default function AdminUserDetail() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Name</TableHead>
+                        <TableHead>Category</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Price</TableHead>
+                        <TableHead>Stock</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
@@ -318,8 +329,38 @@ export default function AdminUserDetail() {
                       {products.map((p: any) => (
                         <TableRow key={p.id}>
                           <TableCell className="font-medium">{p.name}</TableCell>
+                          <TableCell>
+                            {p.category === "combo" ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                                Combo
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                Single
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="capitalize">{p.product_type}</TableCell>
                           <TableCell>LKR {p.price}</TableCell>
+                          <TableCell>
+                            {p.stock_quantity === null || p.stock_quantity === undefined ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                Unlimited
+                              </span>
+                            ) : p.stock_quantity <= 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                                Out of Stock (0)
+                              </span>
+                            ) : p.stock_quantity <= 5 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                                Low: {p.stock_quantity}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {p.stock_quantity} in stock
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant={p.is_active ? "default" : "outline"}>
                               {p.is_active ? "Active" : "Inactive"}
@@ -512,11 +553,38 @@ export default function AdminUserDetail() {
                   <Input type="number" step="0.01" value={prodPrice} onChange={(e) => setProdPrice(e.target.value)} required />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Available Stock</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={prodStockQuantity}
+                    onChange={(e) => setProdStockQuantity(e.target.value)}
+                    placeholder="Blank for unlimited"
+                  />
+                </div>
+                <div className="flex items-center space-x-2 pt-8">
+                  <Switch checked={prodActive} onCheckedChange={setProdActive} />
+                  <Label>Active</Label>
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label>Description</Label>
                 <Textarea value={prodDesc} onChange={(e) => setProdDesc(e.target.value)} rows={3} />
               </div>
               <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <Select value={prodCategory} onValueChange={setProdCategory}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="single">Single Product</SelectItem>
+                      <SelectItem value="combo">Combo Offer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label>Type</Label>
                   <Select value={prodType} onValueChange={setProdType}>
@@ -526,10 +594,6 @@ export default function AdminUserDetail() {
                       <SelectItem value="digital">Digital</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="flex items-center space-x-2 pt-8">
-                  <Switch checked={prodActive} onCheckedChange={setProdActive} />
-                  <Label>Active</Label>
                 </div>
               </div>
               <VariationEditor variations={prodVariations} onChange={setProdVariations} />

@@ -27,6 +27,8 @@ interface Product {
   price: number;
   delivery_price: number;
   product_type: string;
+  stock_quantity: number | null;
+  category: string;
   variations: unknown;
   images: string[];
   video_url: string | null;
@@ -51,6 +53,8 @@ export default function Products() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [deliveryPrice, setDeliveryPrice] = useState("");
+  const [stockQuantity, setStockQuantity] = useState("");
+  const [category, setCategory] = useState("single");
   const [productType, setProductType] = useState("physical");
   const [variations, setVariations] = useState<Variation[]>([]);
   const [images, setImages] = useState<string[]>([]);
@@ -86,6 +90,8 @@ export default function Products() {
     setDescription("");
     setPrice("");
     setDeliveryPrice("");
+    setStockQuantity("");
+    setCategory("single");
     setProductType("physical");
     setVariations([]);
     setImages([]);
@@ -100,6 +106,12 @@ export default function Products() {
     setDescription(product.description || "");
     setPrice(product.price.toString());
     setDeliveryPrice(product.delivery_price?.toString() || "0");
+    setStockQuantity(
+      product.stock_quantity !== null && product.stock_quantity !== undefined
+        ? product.stock_quantity.toString()
+        : ""
+    );
+    setCategory(product.category || "single");
     setProductType(product.product_type);
     setVariations(Array.isArray(product.variations) ? (product.variations as Variation[]) : []);
     setImages(Array.isArray(product.images) ? product.images : []);
@@ -113,12 +125,16 @@ export default function Products() {
     setSaving(true);
 
     try {
+      const parsedStock = stockQuantity.trim() === "" ? null : Math.max(0, parseInt(stockQuantity, 10));
+
       const productData = {
         name,
         description: description || null,
         price: parseFloat(price),
         delivery_price: productType === "physical" ? parseFloat(deliveryPrice || "0") : 0,
         product_type: productType,
+        category: category || "single",
+        stock_quantity: isNaN(parsedStock as number) ? null : parsedStock,
         variations: variations as unknown as import("@/integrations/supabase/types").Json,
         images,
         video_url: videoUrl,
@@ -228,7 +244,7 @@ export default function Products() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="price">Price *</Label>
+                    <Label htmlFor="price">Price (LKR) *</Label>
                     <Input
                       id="price"
                       type="number"
@@ -241,20 +257,35 @@ export default function Products() {
                   </div>
                 </div>
 
-                {productType === "physical" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="delivery-price">Delivery Price</Label>
+                    <Label htmlFor="stock">Available Stock</Label>
                     <Input
-                      id="delivery-price"
+                      id="stock"
                       type="number"
-                      step="0.01"
-                      value={deliveryPrice}
-                      onChange={(e) => setDeliveryPrice(e.target.value)}
-                      placeholder="0.00"
+                      min="0"
+                      step="1"
+                      value={stockQuantity}
+                      onChange={(e) => setStockQuantity(e.target.value)}
+                      placeholder="Leave blank for unlimited"
                     />
-                    <p className="text-xs text-muted-foreground">Delivery fee added to physical product orders</p>
+                    <p className="text-xs text-muted-foreground">Auto-decremented when customers order</p>
                   </div>
-                )}
+                  {productType === "physical" ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="delivery-price">Delivery Price (LKR)</Label>
+                      <Input
+                        id="delivery-price"
+                        type="number"
+                        step="0.01"
+                        value={deliveryPrice}
+                        onChange={(e) => setDeliveryPrice(e.target.value)}
+                        placeholder="0.00"
+                      />
+                      <p className="text-xs text-muted-foreground">Delivery fee added to physical orders</p>
+                    </div>
+                  ) : <div />}
+                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
@@ -269,9 +300,21 @@ export default function Products() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    <Label htmlFor="category">Category</Label>
+                    <Select value={category} onValueChange={setCategory}>
+                      <SelectTrigger id="category">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="single">Single Product</SelectItem>
+                        <SelectItem value="combo">Combo Offer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="type">Product Type</Label>
                     <Select value={productType} onValueChange={setProductType}>
-                      <SelectTrigger>
+                      <SelectTrigger id="type">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -280,14 +323,15 @@ export default function Products() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex items-center space-x-2 pt-8">
-                    <Switch
-                      id="active"
-                      checked={isActive}
-                      onCheckedChange={setIsActive}
-                    />
-                    <Label htmlFor="active">Active</Label>
-                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-2">
+                  <Switch
+                    id="active"
+                    checked={isActive}
+                    onCheckedChange={setIsActive}
+                  />
+                  <Label htmlFor="active">Active</Label>
                 </div>
 
                 <VariationEditor variations={variations} onChange={setVariations} />
@@ -344,13 +388,44 @@ export default function Products() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="font-medium">{product.name}</p>
-                          <p className="text-sm text-muted-foreground capitalize">{product.product_type}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-sm text-muted-foreground capitalize">{product.product_type}</span>
+                            <span className="text-muted-foreground text-xs">•</span>
+                            {product.category === "combo" ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                                Combo Offer
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                Single Product
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          product.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {product.is_active ? "Active" : "Inactive"}
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            product.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {product.is_active ? "Active" : "Inactive"}
+                          </span>
+                          {product.stock_quantity === null || product.stock_quantity === undefined ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              Unlimited
+                            </span>
+                          ) : product.stock_quantity <= 0 ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                              Out of Stock (0)
+                            </span>
+                          ) : product.stock_quantity <= 5 ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                              Low: {product.stock_quantity}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              Stock: {product.stock_quantity}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between">
                         <div>
@@ -377,8 +452,10 @@ export default function Products() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Name</TableHead>
+                        <TableHead>Category</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Price</TableHead>
+                        <TableHead>Stock</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
@@ -387,11 +464,41 @@ export default function Products() {
                       {products.map((product) => (
                         <TableRow key={product.id}>
                           <TableCell className="font-medium">{product.name}</TableCell>
+                          <TableCell>
+                            {product.category === "combo" ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                                Combo Offer
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                Single Product
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="capitalize">{product.product_type}</TableCell>
                           <TableCell>
                             LKR {product.price.toFixed(2)}
                             {product.product_type === "physical" && product.delivery_price > 0 && (
                               <span className="block text-xs text-muted-foreground">+LKR {product.delivery_price.toFixed(2)} delivery</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {product.stock_quantity === null || product.stock_quantity === undefined ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                Unlimited
+                              </span>
+                            ) : product.stock_quantity <= 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                                Out of Stock (0)
+                              </span>
+                            ) : product.stock_quantity <= 5 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                                Low Stock: {product.stock_quantity}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {product.stock_quantity} in stock
+                              </span>
                             )}
                           </TableCell>
                           <TableCell>

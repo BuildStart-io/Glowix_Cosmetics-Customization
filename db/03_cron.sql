@@ -10,14 +10,14 @@
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
--- Queue drainer safety net. webhook-wsender already fires process-message
+-- Queue drainer safety net. webhook-wsender already fires process-message-Glowix_cosmetics
 -- immediately on each inbound message; this catches anything left behind.
 SELECT cron.schedule(
-  'drain-message-queue',
+  'drain-message-queue-Glowix_cosmetics',
   '* * * * *',
   $$
   SELECT net.http_post(
-    url     := '<FUNCTIONS_URL>/process-message',
+    url     := '<FUNCTIONS_URL>/process-message-Glowix_cosmetics',
     headers := '{"Content-Type":"application/json","Authorization":"Bearer <SERVICE_ROLE_KEY>"}'::jsonb,
     body    := '{"trigger":"cron"}'::jsonb
   );
@@ -26,11 +26,11 @@ SELECT cron.schedule(
 
 -- Order follow-ups + inactivity follow-ups.
 SELECT cron.schedule(
-  'send-followups',
+  'send-followups-Glowix_cosmetics',
   '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url     := '<FUNCTIONS_URL>/send-followups',
+    url     := '<FUNCTIONS_URL>/send-followups-Glowix_cosmetics',
     headers := '{"Content-Type":"application/json","Authorization":"Bearer <SERVICE_ROLE_KEY>"}'::jsonb,
     body    := '{}'::jsonb
   );
@@ -38,4 +38,4 @@ SELECT cron.schedule(
 );
 
 -- Inspect:  SELECT jobid, jobname, schedule FROM cron.job;
--- Remove:   SELECT cron.unschedule('drain-message-queue');
+-- Remove:   SELECT cron.unschedule('drain-message-queue-Glowix_cosmetics');

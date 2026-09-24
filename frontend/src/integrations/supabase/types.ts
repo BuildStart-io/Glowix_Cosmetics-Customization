@@ -35,6 +35,90 @@ export type Database = {
         }
         Relationships: []
       }
+      broadcast_campaigns: {
+        Row: {
+          audience_filter: string
+          created_at: string
+          delay_seconds: number
+          failed_count: number
+          id: string
+          media_url: string | null
+          message: string
+          sent_count: number
+          status: string
+          title: string
+          total_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          audience_filter?: string
+          created_at?: string
+          delay_seconds?: number
+          failed_count?: number
+          id?: string
+          media_url?: string | null
+          message: string
+          sent_count?: number
+          status?: string
+          title?: string
+          total_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          audience_filter?: string
+          created_at?: string
+          delay_seconds?: number
+          failed_count?: number
+          id?: string
+          media_url?: string | null
+          message?: string
+          sent_count?: number
+          status?: string
+          title?: string
+          total_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      broadcast_queue: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          customer_name: string | null
+          error_message: string | null
+          id: string
+          phone_number: string
+          sent_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          customer_name?: string | null
+          error_message?: string | null
+          id?: string
+          phone_number: string
+          sent_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          customer_name?: string | null
+          error_message?: string | null
+          id?: string
+          phone_number?: string
+          sent_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       chat_takeovers: {
         Row: {
           created_at: string
@@ -329,13 +413,18 @@ export type Database = {
           customer_phone: string
           district: string | null
           id: string
+          is_preorder: boolean
           order_items: Json
           payment_method: string
+          secondary_phone: string | null
           special_instructions: string | null
           status: string
           total_amount: number
           updated_at: string
           user_id: string
+          waybill_number: string | null
+          waybill_updated_at: string | null
+          waybill_sent_at: string | null
           whatsapp_phone: string | null
         }
         Insert: {
@@ -345,13 +434,18 @@ export type Database = {
           customer_phone: string
           district?: string | null
           id?: string
+          is_preorder?: boolean
           order_items?: Json
           payment_method?: string
+          secondary_phone?: string | null
           special_instructions?: string | null
           status?: string
           total_amount?: number
           updated_at?: string
           user_id: string
+          waybill_number?: string | null
+          waybill_updated_at?: string | null
+          waybill_sent_at?: string | null
           whatsapp_phone?: string | null
         }
         Update: {
@@ -361,13 +455,18 @@ export type Database = {
           customer_phone?: string
           district?: string | null
           id?: string
+          is_preorder?: boolean
           order_items?: Json
           payment_method?: string
+          secondary_phone?: string | null
           special_instructions?: string | null
           status?: string
           total_amount?: number
           updated_at?: string
           user_id?: string
+          waybill_number?: string | null
+          waybill_updated_at?: string | null
+          waybill_sent_at?: string | null
           whatsapp_phone?: string | null
         }
         Relationships: []
@@ -398,6 +497,7 @@ export type Database = {
       }
       products: {
         Row: {
+          category: string
           created_at: string
           delivery_price: number | null
           description: string | null
@@ -407,12 +507,14 @@ export type Database = {
           name: string
           price: number
           product_type: string
+          stock_quantity: number | null
           updated_at: string
           user_id: string
           variations: Json | null
           video_url: string | null
         }
         Insert: {
+          category?: string
           created_at?: string
           delivery_price?: number | null
           description?: string | null
@@ -422,12 +524,14 @@ export type Database = {
           name: string
           price?: number
           product_type?: string
+          stock_quantity?: number | null
           updated_at?: string
           user_id: string
           variations?: Json | null
           video_url?: string | null
         }
         Update: {
+          category?: string
           created_at?: string
           delivery_price?: number | null
           description?: string | null
@@ -437,6 +541,7 @@ export type Database = {
           name?: string
           price?: number
           product_type?: string
+          stock_quantity?: number | null
           updated_at?: string
           user_id?: string
           variations?: Json | null

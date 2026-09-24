@@ -12,6 +12,9 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  db: {
+    schema: "glowix_cosmetics",
+  },
   auth: {
     storage: localStorage,
     persistSession: true,
