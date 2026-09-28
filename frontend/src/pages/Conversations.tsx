@@ -21,6 +21,9 @@ import {
   HandMetal,
   Trash2,
   Crosshair,
+  ShoppingBag,
+  ExternalLink,
+  CheckCircle2,
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
@@ -50,6 +53,32 @@ interface TrackedPhone {
   faq_questions: string[];
 }
 
+interface CustomerOrderSummary {
+  order_id: string;
+  status: string;
+  total_amount: number;
+  is_preorder: boolean;
+  customer_name: string;
+  items_summary: string;
+  created_at: string;
+  order_count: number;
+}
+
+function normalizePhoneKey(raw: string): string {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.startsWith("94") && digits.length === 11) {
+    return digits;
+  }
+  if (digits.startsWith("0") && digits.length === 10) {
+    return "94" + digits.slice(1);
+  }
+  if (digits.length === 9 && (digits.startsWith("7") || digits.startsWith("1"))) {
+    return "94" + digits;
+  }
+  return digits;
+}
+
 export default function Conversations() {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -62,11 +91,69 @@ export default function Conversations() {
   const [takenOverChats, setTakenOverChats] = useState<Set<string>>(new Set());
   const [togglingTakeover, setTogglingTakeover] = useState(false);
   const [trackedPhones, setTrackedPhones] = useState<Map<string, string[]>>(new Map());
+  const [customerOrders, setCustomerOrders] = useState<Map<string, CustomerOrderSummary>>(new Map());
+  const [chatFilter, setChatFilter] = useState<"all" | "orders" | "queries">("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const { effectiveUserId } = useStaffAccess();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Fetch customer orders to identify confirmed buyers
+  const fetchCustomerOrders = useCallback(async () => {
+    if (!user) return;
+    try {
+      const ownerId = effectiveUserId || user.id;
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, whatsapp_phone, customer_phone, customer_name, status, total_amount, is_preorder, order_items, created_at")
+        .eq("user_id", ownerId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching customer orders for conversations:", error);
+        return;
+      }
+
+      if (data) {
+        const orderMap = new Map<string, CustomerOrderSummary>();
+        for (const o of data) {
+          const wKey = normalizePhoneKey(o.whatsapp_phone);
+          const cKey = normalizePhoneKey(o.customer_phone);
+          const rawW = o.whatsapp_phone?.trim();
+          const rawC = o.customer_phone?.trim();
+
+          const itemsText = Array.isArray(o.order_items)
+            ? o.order_items.map((i: any) => `${i.name || "Item"}${i.quantity ? ` x${i.quantity}` : ""}`).join(", ")
+            : "";
+
+          const summary: CustomerOrderSummary = {
+            order_id: o.id,
+            status: o.status,
+            total_amount: Number(o.total_amount) || 0,
+            is_preorder: Boolean(o.is_preorder),
+            customer_name: o.customer_name || "",
+            items_summary: itemsText,
+            created_at: o.created_at,
+            order_count: 1,
+          };
+
+          const keysToMap = [wKey, cKey, rawW, rawC].filter(Boolean);
+          for (const k of keysToMap) {
+            if (!orderMap.has(k)) {
+              orderMap.set(k, summary);
+            } else {
+              const existing = orderMap.get(k)!;
+              existing.order_count += 1;
+            }
+          }
+        }
+        setCustomerOrders(orderMap);
+      }
+    } catch (err) {
+      console.error("Error in fetchCustomerOrders:", err);
+    }
+  }, [user, effectiveUserId]);
 
   // Fetch tracked FAQ usage phones
   const fetchTrackedPhones = useCallback(async () => {
@@ -124,7 +211,26 @@ export default function Conversations() {
   useEffect(() => {
     fetchTakeovers();
     fetchTrackedPhones();
-  }, [fetchTakeovers, fetchTrackedPhones]);
+    fetchCustomerOrders();
+  }, [fetchTakeovers, fetchTrackedPhones, fetchCustomerOrders]);
+
+  // Realtime subscription for orders
+  useEffect(() => {
+    const ordersChannel = supabase
+      .channel("orders-conversations-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "glowix_cosmetics", table: "orders" },
+        () => {
+          fetchCustomerOrders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersChannel);
+    };
+  }, [fetchCustomerOrders]);
 
   const toggleTakeover = useCallback(async (phoneNumber: string) => {
     if (!user || togglingTakeover) return;
@@ -394,11 +500,27 @@ export default function Conversations() {
     return date.toLocaleDateString([], { month: "short", day: "numeric" });
   };
 
-  const filteredThreads = threads.filter(
-    (t) =>
+  const getOrderForPhone = (phone: string): CustomerOrderSummary | undefined => {
+    const normalized = normalizePhoneKey(phone);
+    return customerOrders.get(normalized) || customerOrders.get(phone);
+  };
+
+  const ordersThreadCount = threads.filter(t => Boolean(getOrderForPhone(t.phone_number))).length;
+  const queriesThreadCount = Math.max(0, threads.length - ordersThreadCount);
+
+  const filteredThreads = threads.filter((t) => {
+    const matchesSearch =
       t.phone_number.includes(searchQuery) ||
-      t.sender_name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      t.sender_name.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!matchesSearch) return false;
+
+    const hasOrder = Boolean(getOrderForPhone(t.phone_number));
+    if (chatFilter === "orders") return hasOrder;
+    if (chatFilter === "queries") return !hasOrder;
+    return true;
+  });
+
+  const selectedOrder = selectedPhone ? getOrderForPhone(selectedPhone) : undefined;
 
   return (
     <DashboardLayout>
@@ -418,7 +540,7 @@ export default function Conversations() {
               selectedPhone ? "hidden md:flex" : "flex"
             )}
           >
-            <div className="p-3 border-b">
+            <div className="p-3 border-b space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -427,6 +549,60 @@ export default function Conversations() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"
                 />
+              </div>
+
+              {/* Segment Filter Buttons: All, Orders, Queries */}
+              <div className="grid grid-cols-3 gap-1 bg-muted/60 p-1 rounded-lg text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("all")}
+                  className={cn(
+                    "py-1.5 px-2 rounded-md transition-all text-center flex items-center justify-center gap-1",
+                    chatFilter === "all"
+                      ? "bg-background shadow-sm text-foreground font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span>All</span>
+                  <span className="text-[10px] px-1.5 py-0.2 bg-muted rounded-full font-mono">
+                    {threads.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("orders")}
+                  className={cn(
+                    "py-1.5 px-2 rounded-md transition-all text-center flex items-center justify-center gap-1",
+                    chatFilter === "orders"
+                      ? "bg-emerald-600 text-white shadow-sm font-semibold"
+                      : "text-emerald-700 dark:text-emerald-400 hover:text-emerald-800"
+                  )}
+                >
+                  <ShoppingBag className="h-3 w-3" />
+                  <span>Orders</span>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0.2 rounded-full font-mono",
+                    chatFilter === "orders" ? "bg-emerald-700 text-white" : "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300"
+                  )}>
+                    {ordersThreadCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("queries")}
+                  className={cn(
+                    "py-1.5 px-2 rounded-md transition-all text-center flex items-center justify-center gap-1",
+                    chatFilter === "queries"
+                      ? "bg-background shadow-sm text-foreground font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  <span>Queries</span>
+                  <span className="text-[10px] px-1.5 py-0.2 bg-muted rounded-full font-mono">
+                    {queriesThreadCount}
+                  </span>
+                </button>
               </div>
             </div>
             <ScrollArea className="flex-1">
@@ -438,7 +614,7 @@ export default function Conversations() {
                 <div className="text-center py-8 px-4">
                   <MessageSquare className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground">
-                    No conversations yet
+                    {chatFilter === "orders" ? "No orders found in chats" : chatFilter === "queries" ? "No query chats found" : "No conversations yet"}
                   </p>
                 </div>
               ) : (
@@ -446,24 +622,35 @@ export default function Conversations() {
                   {filteredThreads.map((thread) => {
                     const isTracked = trackedPhones.has(thread.phone_number);
                     const trackedFaqs = trackedPhones.get(thread.phone_number) || [];
+                    const order = getOrderForPhone(thread.phone_number);
+                    const hasOrder = Boolean(order);
                     
                     return (
                       <button
                         key={thread.phone_number}
                         onClick={() => handleSelectThread(thread.phone_number)}
                         className={cn(
-                          "w-full text-left px-4 py-3 border-b hover:bg-muted/50 transition-colors",
+                          "w-full text-left px-4 py-3 border-b hover:bg-muted/50 transition-colors relative",
                           selectedPhone === thread.phone_number && "bg-muted",
-                          isTracked && "border-l-4 border-l-primary bg-primary/5"
+                          hasOrder && "border-l-4 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/20",
+                          !hasOrder && isTracked && "border-l-4 border-l-primary bg-primary/5"
                         )}
                       >
                         <div className="flex items-start gap-3">
                           <div className="flex flex-col items-center gap-1 flex-shrink-0">
                             <div className={cn(
-                              "h-10 w-10 rounded-full flex items-center justify-center",
-                              isTracked ? "bg-primary/20 ring-2 ring-primary" : "bg-primary/10"
+                              "h-10 w-10 rounded-full flex items-center justify-center transition-all",
+                              hasOrder
+                                ? "bg-emerald-100 dark:bg-emerald-900/60 ring-2 ring-emerald-500 text-emerald-700 dark:text-emerald-300"
+                                : isTracked
+                                  ? "bg-primary/20 ring-2 ring-primary text-primary"
+                                  : "bg-primary/10 text-primary"
                             )}>
-                              <User className={cn("h-5 w-5", isTracked ? "text-primary" : "text-primary")} />
+                              {hasOrder ? (
+                                <ShoppingBag className="h-5 w-5" />
+                              ) : (
+                                <User className="h-5 w-5" />
+                              )}
                             </div>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -488,15 +675,30 @@ export default function Conversations() {
                             </AlertDialog>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                 <p className={cn(
                                   "font-medium text-sm truncate",
-                                  isTracked && "text-primary font-bold"
+                                  hasOrder ? "text-emerald-900 dark:text-emerald-200 font-semibold" : isTracked && "text-primary font-bold"
                                 )}>
                                   {thread.sender_name}
                                 </p>
-                                {isTracked && (
+                                {hasOrder && (
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-[10px] px-1.5 py-0 border-emerald-400 font-medium flex items-center gap-1",
+                                      order.is_preorder
+                                        ? "bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300"
+                                        : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200"
+                                    )}
+                                  >
+                                    <ShoppingBag className="h-2.5 w-2.5" />
+                                    <span>{order.is_preorder ? "Pre-Order" : "Order"}</span>
+                                    <span>• LKR {order.total_amount.toLocaleString()}</span>
+                                  </Badge>
+                                )}
+                                {isTracked && !hasOrder && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <span>
@@ -518,10 +720,22 @@ export default function Conversations() {
                                 {formatTime(thread.last_time)}
                               </span>
                             </div>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {thread.phone_number}
-                            </p>
+                            <div className="flex items-center justify-between text-xs text-muted-foreground mt-0.5">
+                              <p className="flex items-center gap-1 truncate">
+                                <Phone className="h-3 w-3 flex-shrink-0" />
+                                <span>{thread.phone_number}</span>
+                              </p>
+                              {hasOrder && (
+                                <span className={cn(
+                                  "text-[10px] px-1.5 py-0.2 rounded font-medium capitalize flex-shrink-0 ml-1",
+                                  order.status === "completed"
+                                    ? "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300"
+                                    : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                                )}>
+                                  {order.status}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground truncate mt-0.5">
                               {thread.last_message}
                             </p>
@@ -555,21 +769,36 @@ export default function Conversations() {
                     <ArrowLeft className="h-5 w-5" />
                   </Button>
                   <div className={cn(
-                    "h-9 w-9 rounded-full flex items-center justify-center",
-                    trackedPhones.has(selectedPhone) ? "bg-primary/20 ring-2 ring-primary" : "bg-primary/10"
+                    "h-9 w-9 rounded-full flex items-center justify-center transition-all",
+                    selectedOrder
+                      ? "bg-emerald-100 dark:bg-emerald-900/60 ring-2 ring-emerald-500 text-emerald-700 dark:text-emerald-300"
+                      : trackedPhones.has(selectedPhone)
+                        ? "bg-primary/20 ring-2 ring-primary text-primary"
+                        : "bg-primary/10 text-primary"
                   )}>
-                    <User className="h-5 w-5 text-primary" />
+                    {selectedOrder ? (
+                      <ShoppingBag className="h-5 w-5" />
+                    ) : (
+                      <User className="h-5 w-5 text-primary" />
+                    )}
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className={cn(
                         "font-medium text-sm",
-                        trackedPhones.has(selectedPhone) && "text-primary font-bold"
+                        selectedOrder ? "text-emerald-900 dark:text-emerald-200 font-semibold" : trackedPhones.has(selectedPhone) && "text-primary font-bold"
                       )}>
                         {threads.find((t) => t.phone_number === selectedPhone)
                           ?.sender_name || "Unknown"}
                       </p>
-                      {trackedPhones.has(selectedPhone) && (
+                      {selectedOrder && (
+                        <Badge variant="outline" className="gap-1 text-xs border-emerald-400 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+                          <ShoppingBag className="h-3 w-3" />
+                          <span>{selectedOrder.is_preorder ? "Pre-Order" : "Order Placed"}: LKR {selectedOrder.total_amount.toLocaleString()}</span>
+                          <span className="capitalize">({selectedOrder.status})</span>
+                        </Badge>
+                      )}
+                      {trackedPhones.has(selectedPhone) && !selectedOrder && (
                         <Badge variant="outline" className="gap-1 text-xs border-primary/50 text-primary">
                           <Crosshair className="h-3 w-3" />
                           FAQ Tracked
@@ -600,6 +829,34 @@ export default function Conversations() {
                     )}
                   </Button>
                 </div>
+
+                {/* Mini Order Alert Banner */}
+                {selectedOrder && (
+                  <div className="bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800/40 px-4 py-2 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1 flex-shrink-0">
+                        <ShoppingBag className="h-3.5 w-3.5" />
+                        Order Details:
+                      </span>
+                      <span className="text-muted-foreground truncate">
+                        {selectedOrder.items_summary || "Items ordered"}
+                      </span>
+                      <span className="font-mono font-bold text-foreground flex-shrink-0">
+                        LKR {selectedOrder.total_amount.toLocaleString()}
+                      </span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize flex-shrink-0">
+                        {selectedOrder.status}
+                      </Badge>
+                    </div>
+                    <a
+                      href="/dashboard/orders"
+                      className="text-emerald-700 dark:text-emerald-400 font-medium hover:underline flex items-center gap-1 flex-shrink-0 ml-3"
+                    >
+                      <span>View Orders</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
 
                 {/* Messages */}
                 <ScrollArea className="flex-1 p-4">

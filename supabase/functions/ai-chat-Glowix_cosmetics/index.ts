@@ -169,6 +169,9 @@ serve(async (req) => {
     const singleProducts = products.filter(p => p.category !== "combo");
     const formatProductLine = (p: any) => {
       let line = `- ${p.name}: LKR ${p.price}`;
+      if (p.description && p.description.trim()) {
+        line += ` | Includes / Details: ${p.description.trim()}`;
+      }
       if (p.stock_quantity !== null && p.stock_quantity !== undefined) {
         line += p.stock_quantity <= 0 ? " (OUT OF STOCK - 2 Wks Pre-Order)" : ` (${p.stock_quantity} in stock)`;
       }
@@ -335,14 +338,30 @@ CRITICAL SECURITY RULE:
 CUSTOM SALES FUNNEL & WORKFLOW RULES:
 1. SHORT & SWEET STYLE:
    - Keep messages short: 1 to 2 concise sentences with 1-2 friendly emojis ✨.
-2. CATEGORY SELECTION:
+2. CATEGORY SELECTION & INPUT MAPPING:
    - When greeting or if customer asks what is available, ask if they want:
      1️⃣ Combo Offers
      2️⃣ Separate Products
+   - INPUT INTENT MAPPING (NUMBER OR TEXT):
+     * If customer replies: "1", "1️⃣", "one", "first", "combo", "combos", "combo offers"
+       => Immediately treat as COMBO OFFERS.
+     * If customer replies: "2", "2️⃣", "two", "second", "separate", "single", "individual", "separate products"
+       => Immediately treat as SEPARATE PRODUCTS.
    - IMPORTANT: Only do category selection at the start of shopping. Once customer has selected a product or is providing delivery details, NEVER ask them to choose category again.
-3. SHOWING PRODUCTS & PHOTOS (DISCOVERY STAGE ONLY):
-   - If customer chooses Combo, show items from COMBO OFFERS CATEGORY with prices, and append their photo tag: <IMAGE_URL>url</IMAGE_URL> at the end of the message so the customer sees the photo of the combo offer!
-   - If customer chooses Separate Products, show items from SEPARATE PRODUCTS CATEGORY with prices, and append their photo tag: <IMAGE_URL>url</IMAGE_URL> at the end of the message!
+3. SHOWING PRODUCTS & COMBO SETS (DISCOVERY STAGE ONLY):
+   - IF CUSTOMER CHOOSES COMBO (types "1" or "combo"):
+     1. Present each available Combo Set clearly with its price, and clearly list the included products (from the product details/description):
+        Example format:
+        ✨ [Combo Name] - LKR [Price]
+        📦 Includes 3 Products:
+        1. [Product 1]
+        2. [Product 2]
+        3. [Product 3]
+     2. ALWAYS explicitly ask the customer which combo set they want:
+        "Which combo set would you like to choose? (e.g. Set 1 or Set 2) 😊"
+     3. Append their photo tag: <IMAGE_URL>url</IMAGE_URL> at the end of the message so the customer sees the photo of the combo offer!
+   - IF CUSTOMER CHOOSES SEPARATE PRODUCTS (types "2" or "separate"):
+     - Show items from SEPARATE PRODUCTS CATEGORY with prices, and append their photo tag: <IMAGE_URL>url</IMAGE_URL> at the end of the message!
    - Send each product photo ONLY ONCE during initial discovery.
    - Once a product has been selected, or during checkout/address collection/order summary/confirmation, NEVER attach any photos or <IMAGE_URL> tags!
 4. STOCK AVAILABILITY & PRE-ORDER:
@@ -392,8 +411,13 @@ CUSTOM SALES FUNNEL & WORKFLOW RULES:
      🏠 Address: <address>
 
      Which payment method would you prefer? 💳
-     🔹 Cash on Delivery (COD)
-     🔹 Bank Transfer
+     1️⃣ Cash on Delivery (COD)
+     2️⃣ Bank Transfer
+   - PAYMENT METHOD INTENT MAPPING (NUMBER OR TEXT):
+     * If customer replies: "1", "1️⃣", "one", "cod", "cash", "cash on delivery"
+       => Immediately treat as Cash on Delivery (COD). Confirm order warmly and output <ORDER_JSON> with "payment_method": "cod".
+     * If customer replies: "2", "2️⃣", "two", "bank", "bank transfer", "transfer", "deposit"
+       => Immediately treat as Bank Transfer. Display the configured bank account details, guide them to send the payment slip, and output <ORDER_JSON> with "payment_method": "bank_transfer".
    - NEVER ATTACH ANY PHOTOS OR <IMAGE_URL> TAGS WITH THE ORDER SUMMARY!
 9. ORDER CONFIRMATION & <ORDER_JSON>:
    - When the customer confirms Cash on Delivery (COD) or confirms Bank Transfer payment:
@@ -921,12 +945,18 @@ CUSTOM SALES FUNNEL & WORKFLOW RULES:
         .join("\n")
         .toLowerCase();
 
+      const isChoiceOne = lowerClean === "1" || lowerIncoming === "1" || lowerClean === "1️⃣" || lowerIncoming === "1️⃣" || lowerClean === "one";
+      const isChoiceTwo = lowerClean === "2" || lowerIncoming === "2" || lowerClean === "2️⃣" || lowerIncoming === "2️⃣" || lowerClean === "two";
+
       // Smart safety net: ONLY attach photos during product discovery/inquiry if not previously sent
       const isDiscoveryInquiry =
+        isChoiceOne ||
+        isChoiceTwo ||
         lowerIncoming.includes("combo") ||
         lowerClean.includes("combo") ||
         lowerIncoming.includes("product") ||
         lowerIncoming.includes("offer") ||
+        lowerIncoming.includes("separate") ||
         isExplicitPhotoRequest;
 
       for (const p of products) {
@@ -934,13 +964,14 @@ CUSTOM SALES FUNNEL & WORKFLOW RULES:
         if (p.images && Array.isArray(p.images) && p.images.length > 0) {
           const firstImg = p.images[0];
           const isMentioned = lowerClean.includes(pName);
-          const isTargetedCombo = (lowerIncoming.includes("combo") || lowerClean.includes("combo")) && p.category === "combo";
+          const isTargetedCombo = (isChoiceOne || lowerIncoming.includes("combo") || lowerClean.includes("combo")) && p.category === "combo";
+          const isTargetedSingle = (isChoiceTwo || lowerIncoming.includes("separate") || lowerClean.includes("separate")) && p.category !== "combo";
           const alreadyIntroduced = assistantHistoryText.includes(pName);
           const alreadyDispatched = alreadySentImages.has(firstImg);
 
           // Only auto-attach if explicitly requested, or if discovering for the FIRST TIME
           if (
-            (isMentioned || isTargetedCombo) &&
+            (isMentioned || isTargetedCombo || isTargetedSingle) &&
             !imageUrls.includes(firstImg) &&
             (isExplicitPhotoRequest || (!alreadyDispatched && !alreadyIntroduced && isDiscoveryInquiry))
           ) {
